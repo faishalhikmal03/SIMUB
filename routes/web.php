@@ -70,9 +70,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
 Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(function () {
     
     // Dashboard Admin
-    Route::get('/dashboard', function () {
-        return view('admin.dashboard');
-    })->name('dashboard');
+   Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
 
     // Pratinjau Kuesioner
     Route::get('kuesioner/{kuesioner}/preview', [KuesionerController::class, 'preview'])->name('kuesioner.preview');
@@ -83,21 +81,24 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     // Manajemen Kuesioner (CRUD)
     Route::resource('kuesioner', KuesionerController::class);
 
-    //Manajemen Jawaban
-    Route::get('jawaban', [JawabanController::class, 'index'])->name('jawaban.index');
+    
+    //--- Manajemen Jawaban (Direfaktor) ---
+    Route::prefix('jawaban')->name('jawaban.')->group(function() {
+        // Halaman utama yang menampilkan setiap sesi pengisian
+        Route::get('/', [JawabanController::class, 'index'])->name('index');
 
-    //Export jawaban ke csv
-     Route::get('jawaban/export', [JawabanController::class, 'export'])->name('jawaban.export');
-
-    // Menggunakan {statusPengisian} agar cocok dengan parameter di controller
-    Route::delete('jawaban/{statusPengisian}', [JawabanController::class, 'destroy'])->name('jawaban.destroy');
-
-    //Download jawaban per-usernya
-    Route::get('jawaban/{statusPengisian}/export-detail', [JawabanController::class, 'exportDetail'])->name('jawaban.export.detail');
-
-    //Statistik Admin
-    Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
-
+        // Menampilkan detail dari SATU sesi pengisian
+        Route::get('/{submissionUuid}', [JawabanController::class, 'show'])->name('show');
+        
+        // Menghapus SATU sesi pengisian
+        Route::delete('/{submissionUuid}', [JawabanController::class, 'destroy'])->name('destroy');
+        
+        // Mengekspor ringkasan (menggunakan parameter filter dari query string)
+        Route::get('/export', [JawabanController::class, 'export'])->name('export');
+        
+        // Mengekspor jawaban detail dari SATU sesi pengisian spesifik
+        Route::get('/export/{submissionUuid}', [JawabanController::class, 'exportDetail'])->name('exportDetail');
+    });
 
 });
 

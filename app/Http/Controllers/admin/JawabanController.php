@@ -6,23 +6,26 @@ use App\Http\Controllers\Controller;
 use App\Models\Jawaban;
 use App\Models\Kuesioner;
 use App\Models\StatusPengisian;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
+// PERBAIKAN: Nama kelas diubah menjadi JawabanController
 class JawabanController extends Controller
 {
     /**
      * Menampilkan halaman manajemen jawaban dengan filter dan pagination.
+     * Logika mengambil data per sesi pengisian (submission).
      */
     public function index(Request $request)
     {
         $kuesioners = Kuesioner::orderBy('judul')->get();
         
-        $query = $this->getFilteredQuery($request);
+        $query = $this->getFilteredSubmissionsQuery($request);
         
-        $hasilPengisian = $query->latest()->paginate(10);
+        $hasilPengisian = $query->latest('waktu_pengisian')->paginate(10);
 
         return view('admin.jawaban.index', [
             'hasilPengisian' => $hasilPengisian,
@@ -32,20 +35,39 @@ class JawabanController extends Controller
     }
 
     /**
-     * Menghapus data pengisian kuesioner oleh seorang pengguna.
+     * Menampilkan detail jawaban dari satu sesi pengisian.
      */
-    public function destroy(StatusPengisian $statusPengisian)
+    public function show($submissionUuid)
+    {
+        $jawabanPertama = Jawaban::where('submission_uuid', $submissionUuid)->with(['user', 'kuesioner'])->firstOrFail();
+        
+        $kuesionerAnswers = Jawaban::where('submission_uuid', $submissionUuid)
+            ->with(['section', 'pertanyaan', 'pilihanJawaban'])
+            ->get();
+            
+        return view('admin.jawaban.show', [
+            'user' => $jawabanPertama->user,
+            'kuesioner' => $jawabanPertama->kuesioner,
+            'submissionUuid' => $submissionUuid,
+            'kuesionerAnswers' => $kuesionerAnswers
+        ]);
+    }
+
+    /**
+     * Menghapus semua data jawaban yang terkait dengan satu sesi pengisian.
+     */
+    public function destroy($submissionUuid)
     {
         DB::beginTransaction();
         try {
-            Jawaban::where('user_id', $statusPengisian->user_id)
-                   ->where('kuesioner_id', $statusPengisian->kuesioner_id)
-                   ->delete();
-            
-            $statusPengisian->delete();
+            $jawabanDihapus = Jawaban::where('submission_uuid', $submissionUuid)->delete();
 
+            if($jawabanDihapus == 0) {
+                return back()->with('error', 'Data jawaban tidak ditemukan.');
+            }
+            
             DB::commit();
-            return redirect()->route('admin.jawaban.index')->with('success', 'Data jawaban berhasil dihapus.');
+            return redirect()->route('admin.jawaban.index')->with('success', 'Data sesi jawaban berhasil dihapus.');
 
         } catch (\Exception $e) {
             DB::rollBack();
@@ -59,9 +81,9 @@ class JawabanController extends Controller
      */
     public function export(Request $request)
     {
-        $hasilPengisian = $this->getFilteredQuery($request)->get();
+        $hasilPengisian = $this->getFilteredSubmissionsQuery($request)->get();
         
-        $fileName = 'jawaban_kuesioner_' . date('Y-m-d') . '.csv';
+        $fileName = 'ringkasan_jawaban_kuesioner_' . date('Y-m-d') . '.csv';
 
         $headers = [
             "Content-type"        => "text/csv",
@@ -74,25 +96,26 @@ class JawabanController extends Controller
         $callback = function() use ($hasilPengisian) {
             $file = fopen('php://output', 'w');
             
-            fputcsv($file, ['ID Pengguna', 'Nama Pengisi', 'Role', 'NPM/NIDN/Yudisium', 'Judul Kuesioner', 'Waktu Pengisian']);
+            fputcsv($file, ['ID Sesi', 'Nama Pengisi', 'Role', 'NPM/NIDN/Yudisium', 'Judul Kuesioner', 'Waktu Pengisian']);
 
             foreach ($hasilPengisian as $hasil) {
+                $user = $hasil->user;
                 $identifier = '';
-                if(in_array($hasil->user->role, ['mahasiswa', 'mahasiswa_baru'])) {
-                    $identifier = (string)($hasil->user->npm ?? 'N/A');
-                } elseif($hasil->user->role == 'dosen') {
-                    $identifier = (string)($hasil->user->nidn ?? 'N/A');
-                } elseif($hasil->user->role == 'alumni') {
-                    $identifier = $hasil->user->tanggal_yudisium ? \Carbon\Carbon::parse($hasil->user->tanggal_yudisium)->format('Y-m-d') : 'N/A';
+                if(in_array($user->role, ['mahasiswa', 'mahasiswa_baru'])) {
+                    $identifier = (string)($user->npm ?? 'N/A');
+                } elseif($user->role == 'dosen') {
+                    $identifier = (string)($user->nidn ?? 'N/A');
+                } elseif($user->role == 'alumni') {
+                    $identifier = $user->tanggal_yudisium ? \Carbon\Carbon::parse($user->tanggal_yudisium)->format('Y-m-d') : 'N/A';
                 }
 
                 fputcsv($file, [
-                    $hasil->user->id,
-                    $hasil->user->nama,
-                    $hasil->user->role,
+                    $hasil->submission_uuid,
+                    $user->nama,
+                    $user->role,
                     $identifier,
                     $hasil->kuesioner->judul,
-                    $hasil->updated_at->format('Y-m-d H:i:s')
+                    \Carbon\Carbon::parse($hasil->waktu_pengisian)->format('Y-m-d H:i:s')
                 ]);
             }
             fclose($file);
@@ -102,17 +125,22 @@ class JawabanController extends Controller
     }
 
    /**
-     * Mengekspor jawaban detail dari satu pengguna untuk satu kuesioner.
+     * Mengekspor jawaban detail dari satu sesi pengisian.
      */
-    public function exportDetail(StatusPengisian $statusPengisian)
+    public function exportDetail($submissionUuid)
     {
-        $kuesioner = Kuesioner::with('sections.pertanyaans.pilihanJawabans')->find($statusPengisian->kuesioner_id);
-        $user = $statusPengisian->user;
-        $allUserAnswers = Jawaban::where('user_id', $user->id)
-            ->where('kuesioner_id', $kuesioner->id)
+        $answers = Jawaban::where('submission_uuid', $submissionUuid)
+            ->with(['kuesioner', 'user', 'section', 'pertanyaan', 'pilihanJawaban'])
             ->get();
 
-        $fileName = 'jawaban-' . Str::slug($user->nama) . '-' . Str::slug($kuesioner->judul) . '.csv';
+        if ($answers->isEmpty()) {
+            abort(404, 'Data jawaban untuk sesi ini tidak ditemukan.');
+        }
+
+        $kuesioner = $answers->first()->kuesioner;
+        $user = $answers->first()->user;
+
+        $fileName = 'jawaban_detail-' . Str::slug($user->nama) . '-' . Str::limit(Str::slug($kuesioner->judul), 20) . '.csv';
         $headers = [
             "Content-type"        => "text/csv; charset=utf-8",
             "Content-Disposition" => "attachment; filename=$fileName",
@@ -121,61 +149,35 @@ class JawabanController extends Controller
             "Expires"             => "0"
         ];
 
-        $callback = function() use ($kuesioner, $user, $allUserAnswers) {
+        $callback = function() use ($kuesioner, $user, $answers) {
             $file = fopen('php://output', 'w');
             
-            // PERBAIKAN 1: Menambahkan 'sep=,' untuk kompatibilitas Excel
             fputcsv($file, ['sep=,']);
-
-            // PERBAIKAN 2: Menambahkan detail identitas pengguna
             fputcsv($file, ['Judul Kuesioner:', $kuesioner->judul]);
             fputcsv($file, ['Diisi oleh:', $user->nama]);
-            fputcsv($file, ['Role:', Str::title(str_replace('_', ' ', $user->role))]);
-
-            if(in_array($user->role, ['mahasiswa', 'mahasiswa_baru'])) {
-                fputcsv($file, ['NPM:', $user->npm ?? 'N/A']);
-            } elseif($user->role == 'dosen') {
-                fputcsv($file, ['NIDN:', $user->nidn ?? 'N/A']);
-            } elseif($user->role == 'alumni') {
-                fputcsv($file, ['Tanggal Yudisium:', $user->tanggal_yudisium ? \Carbon\Carbon::parse($user->tanggal_yudisium)->format('d F Y') : 'N/A']);
-            }
-            
-            fputcsv($file, []); // Baris kosong sebagai pemisah
-
-            // Menulis header untuk tabel jawaban
+            fputcsv($file, []); // Baris kosong
             fputcsv($file, ['Section', 'Pertanyaan', 'Jawaban']);
+
+            $answerMap = [];
+            foreach ($answers as $answer) {
+                if ($answer->jawaban_text) {
+                    $answerMap[$answer->pertanyaan_id][] = $answer->jawaban_text;
+                } elseif ($answer->pilihanJawaban) {
+                    $answerMap[$answer->pertanyaan_id][] = $answer->pilihanJawaban->pilihan;
+                }
+            }
+
+            // Load relasi sections dan pertanyaans pada kuesioner
+            $kuesioner->load('sections.pertanyaans');
 
             foreach ($kuesioner->sections as $section) {
                 foreach ($section->pertanyaans as $pertanyaan) {
-                    $answersForThisQuestion = $allUserAnswers->where('pertanyaan_id', $pertanyaan->id);
-                    $jawabanText = 'TIDAK DIJAWAB';
-
-                    if ($answersForThisQuestion->isNotEmpty()) {
-                        if ($pertanyaan->tipe_jawaban === 'checkbox') {
-                            $pilihanTexts = [];
-                            foreach ($answersForThisQuestion as $answer) {
-                                $answer->load('pilihanJawaban');
-                                if ($answer->pilihanJawaban) {
-                                    $pilihanTexts[] = $answer->pilihanJawaban->pilihan;
-                                }
-                            }
-                            $jawabanText = implode('; ', $pilihanTexts);
-                        } else {
-                            $answer = $answersForThisQuestion->first();
-                            if ($answer->jawaban_text) {
-                                $jawabanText = $answer->jawaban_text;
-                            } elseif ($answer->pilihan_jawaban_id) {
-                                $answer->load('pilihanJawaban');
-                                $jawabanText = $answer->pilihanJawaban ? $answer->pilihanJawaban->pilihan : 'Pilihan ID tidak valid';
-                            }
-                        }
-                    }
-
-                    // Menulis baris data ke CSV
+                    $jawabanText = $answerMap[$pertanyaan->id] ?? ['TIDAK DIJAWAB'];
+                    
                     fputcsv($file, [
                         $section->judul,
                         $pertanyaan->pertanyaan,
-                        $jawabanText
+                        implode('; ', $jawabanText)
                     ]);
                 }
             }
@@ -187,11 +189,19 @@ class JawabanController extends Controller
 
     /**
      * Metode privat untuk membangun query filter agar tidak duplikasi kode.
+     * Logika mengambil data per sesi pengisian.
      */
-    private function getFilteredQuery(Request $request)
+    private function getFilteredSubmissionsQuery(Request $request)
     {
-        $query = StatusPengisian::where('status', 'sudah_diisi')
-                                ->with(['user', 'kuesioner']);
+        $query = Jawaban::select(
+                'submission_uuid', 
+                'user_id', 
+                'kuesioner_id', 
+                DB::raw('MAX(created_at) as waktu_pengisian')
+            )
+            ->whereNotNull('submission_uuid')
+            ->with(['user', 'kuesioner'])
+            ->groupBy('submission_uuid', 'user_id', 'kuesioner_id');
 
         if ($request->filled('kuesioner_id')) {
             $query->where('kuesioner_id', $request->kuesioner_id);
@@ -206,3 +216,4 @@ class JawabanController extends Controller
         return $query;
     }
 }
+

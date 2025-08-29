@@ -34,44 +34,79 @@ class KuesionerController extends Controller
     /**
      * Menyimpan kuesioner baru beserta pertanyaannya ke database.
      */
-    public function store(Request $request)
+ public function store(Request $request)
     {
+        // --- LANGKAH DEBUGGING ---
+        // Log semua data yang masuk dari request untuk diinspeksi.
+        Log::info('Data Kuesioner Diterima:', $request->all());
+        // --- AKHIR LANGKAH DEBUGGING ---
+
         $validated = $request->validate([
             'judul' => 'required|string|max:255',
             'deskripsi' => 'nullable|string',
             'target_user' => 'required|in:mahasiswa,mahasiswa_baru,alumni,dosen',
+            'bisa_diisi_ulang' => 'required|boolean',
             'status' => 'required|in:aktif,nonaktif',
             'sections' => 'required|array|min:1',
+            'sections.*.clientId' => 'required', // ID sementara dari frontend
             'sections.*.judul' => 'required|string',
             'sections.*.deskripsi' => 'nullable|string',
-            'sections.*.questions' => 'required|array|min:1',
+            'sections.*.questions' => 'nullable|array',
             'sections.*.questions.*.pertanyaan' => 'required|string|max:255',
             'sections.*.questions.*.tipe_jawaban' => 'required|in:text_singkat,paragraf,single_option,checkbox',
             'sections.*.questions.*.pilihan' => 'nullable|array',
-            'sections.*.questions.*.pilihan.*' => 'nullable|string|max:255',
+            'sections.*.questions.*.pilihan.*.text' => 'required|string|max:255',
+            'sections.*.questions.*.pilihan.*.next_section_id' => 'nullable', // Validasi hanya untuk memastikan ada, nilainya bisa clientId atau kosong
         ]);
 
         DB::beginTransaction();
         try {
-            $kuesioner = Kuesioner::create(Arr::only($validated, ['judul', 'deskripsi', 'target_user', 'status']));
+            $kuesioner = Kuesioner::create(Arr::only($validated, ['judul', 'deskripsi', 'target_user', 'status', 'bisa_diisi_ulang']));
 
+            $clientIdToDbIdMap = [];
+
+            // --- PASS 1: Buat semua sections dan petakan ID ---
             foreach ($validated['sections'] as $sIndex => $sData) {
                 $section = $kuesioner->sections()->create([
                     'judul' => $sData['judul'],
                     'deskripsi' => $sData['deskripsi'],
                     'urutan' => $sIndex + 1,
                 ]);
+                // Petakan clientId dari form ke id database yang baru dibuat
+                $clientIdToDbIdMap[$sData['clientId']] = $section->id;
+            }
 
-                foreach ($sData['questions'] as $qData) {
-                    $pertanyaan = $section->pertanyaans()->create([
-                        'pertanyaan' => $qData['pertanyaan'],
-                        'tipe_jawaban' => $qData['tipe_jawaban'],
-                    ]);
+            // --- PASS 2: Buat pertanyaan dan pilihan, gunakan map untuk relasi ---
+            foreach ($validated['sections'] as $sData) {
+                // Dapatkan ID section dari map
+                $sectionId = $clientIdToDbIdMap[$sData['clientId']];
 
-                    if (in_array($qData['tipe_jawaban'], ['single_option', 'checkbox']) && isset($qData['pilihan'])) {
-                        $pilihanData = collect($qData['pilihan'])->filter()->map(fn ($p) => ['pilihan' => $p])->all();
-                        if (!empty($pilihanData)) {
-                           $pertanyaan->pilihanJawabans()->createMany($pilihanData);
+                if (isset($sData['questions'])) {
+                    foreach ($sData['questions'] as $qData) {
+                        $pertanyaan = Pertanyaan::create([
+                            'section_id' => $sectionId,
+                            'pertanyaan' => $qData['pertanyaan'],
+                            'tipe_jawaban' => $qData['tipe_jawaban'],
+                        ]);
+
+                        if (in_array($qData['tipe_jawaban'], ['single_option', 'checkbox']) && isset($qData['pilihan'])) {
+                            $pilihanUntukSimpan = [];
+                            foreach ($qData['pilihan'] as $pilihan) {
+                                $nextSectionDbId = null;
+                                // Jika ada next_section_id (yang berupa clientId), cari id database-nya di map
+                                if (isset($pilihan['next_section_id']) && !empty($pilihan['next_section_id'])) {
+                                    $nextSectionDbId = $clientIdToDbIdMap[$pilihan['next_section_id']] ?? null;
+                                }
+
+                                $pilihanUntukSimpan[] = [
+                                    'pilihan' => $pilihan['text'], // Ambil dari 'text'
+                                    'next_section_id' => $nextSectionDbId, // Gunakan ID database atau null
+                                ];
+                            }
+
+                            if (!empty($pilihanUntukSimpan)) {
+                                $pertanyaan->pilihanJawabans()->createMany($pilihanUntukSimpan);
+                            }
                         }
                     }
                 }
@@ -81,8 +116,8 @@ class KuesionerController extends Controller
             return redirect()->route('admin.kuesioner.index')->with('success', 'Kuesioner berhasil dibuat!');
         } catch (\Exception $e) {
             DB::rollBack();
-            Log::error('Gagal menyimpan kuesioner: ' . $e->getMessage());
-            return back()->withInput()->with('error', 'Terjadi kesalahan internal saat menyimpan.');
+            Log::error('Gagal menyimpan kuesioner: ' . $e->getMessage() . ' di baris ' . $e->getLine());
+            return back()->withInput()->with('error', 'Terjadi kesalahan internal saat menyimpan kuesioner.');
         }
     }
 
@@ -149,6 +184,7 @@ class KuesionerController extends Controller
             'sections.*.questions.*.pilihan' => 'nullable|array',
             'sections.*.questions.*.pilihan.*.id' => 'nullable|exists:pilihan_jawabans,id',
             'sections.*.questions.*.pilihan.*.text' => 'nullable|string|max:255',
+            'sections.*.questions.*.pilihan.*.next_section_id' => 'nullable|exists:sections,id',
         ]);
 
         DB::beginTransaction();

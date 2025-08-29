@@ -15,11 +15,13 @@ class Jawaban extends Model
      * @var array<int, string>
      */
     protected $fillable = [
+        'submission_uuid',
         'user_id',
         'kuesioner_id',
+        'section_id', // Ditambahkan untuk organisasi data yang lebih baik
         'pertanyaan_id',
-        'jawaban_text',
-        'pilihan_jawaban_id',
+        'jawaban_text',       // Untuk jawaban tipe teks/paragraf
+        'pilihan_jawaban_id', // Untuk jawaban tipe single_option/checkbox
     ];
 
     /**
@@ -38,6 +40,15 @@ class Jawaban extends Model
     public function kuesioner()
     {
         return $this->belongsTo(Kuesioner::class);
+    }
+    
+    /**
+     * Mendefinisikan relasi "many-to-one":
+     * Satu Jawaban ini milik satu Section.
+     */
+    public function section()
+    {
+        return $this->belongsTo(Section::class);
     }
 
     /**

@@ -5,7 +5,8 @@
 
     <div class="bg-white dark:bg-gray-800 overflow-hidden shadow-sm sm:rounded-lg mb-6">
         <div class="p-6 text-gray-900 dark:text-gray-100">
-            {{ __("Selamat datang di dashboard Anda, ") }} {{ $user->nama }}!
+            {{-- Pastikan variabel $user dikirim dari controller --}}
+            {{ __("Selamat datang di dashboard Anda, ") }} {{ $user->nama ?? 'Pengguna' }}!
         </div>
     </div>
 
@@ -25,7 +26,8 @@
             </div>
             {{-- Konten Card (Angka di tengah) --}}
             <div class="flex-grow flex items-center justify-center">
-                <p class="text-5xl font-bold text-gray-800 dark:text-gray-100">{{ $kuesionerBelumDiisi }}</p>
+                {{-- PERUBAHAN: Menggunakan nama variabel yang benar dari controller --}}
+                <p class="text-5xl font-bold text-gray-800 dark:text-gray-100">{{ $jumlahBelumDiisi }}</p>
             </div>
         </div>
 
@@ -42,7 +44,8 @@
             </div>
             {{-- Konten Card (Angka di tengah) --}}
             <div class="flex-grow flex items-center justify-center">
-                <p class="text-5xl font-bold text-gray-800 dark:text-gray-100">{{ $kuesionerSudahDiisi }}</p>
+                {{-- PERUBAHAN: Menggunakan nama variabel yang benar dari controller --}}
+                <p class="text-5xl font-bold text-gray-800 dark:text-gray-100">{{ $jumlahSudahDiisi }}</p>
             </div>
         </div>
 

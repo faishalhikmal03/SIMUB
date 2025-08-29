@@ -1,5 +1,4 @@
 <?php
-// File: app/Models/PilihanJawaban.php
 
 namespace App\Models;
 
@@ -10,20 +9,46 @@ class PilihanJawaban extends Model
 {
     use HasFactory;
 
-    // Nama tabel harus didefinisikan jika tidak mengikuti konvensi jamak
+    /**
+     * Nama tabel yang terhubung dengan model.
+     *
+     * @var string
+     */
     protected $table = 'pilihan_jawabans';
 
-    // Nonaktifkan timestamps jika tabel tidak memiliki kolom created_at/updated_at
+    /**
+     * Menunjukkan jika model harus diberi stempel waktu.
+     * Diatur ke false karena tabel ini tidak memiliki kolom created_at dan updated_at.
+     *
+     * @var bool
+     */
     public $timestamps = false;
-    
-    // Pastikan semua kolom ini ada, terutama 'pilihan'
+
+    /**
+     * Atribut yang dapat diisi secara massal.
+     *
+     * @var array<int, string>
+     */
     protected $fillable = [
         'pertanyaan_id',
         'pilihan',
+        'next_section_id', // Kolom penting untuk fungsionalitas pertanyaan kondisional
     ];
 
+    /**
+     * Mendapatkan pertanyaan yang memiliki pilihan jawaban ini.
+     */
     public function pertanyaan()
     {
         return $this->belongsTo(Pertanyaan::class);
     }
+
+    /**
+     * Mendapatkan section berikutnya yang dituju oleh pilihan ini (jika ada).
+     */
+    public function nextSection()
+    {
+        return $this->belongsTo(Section::class, 'next_section_id');
+    }
 }
+
