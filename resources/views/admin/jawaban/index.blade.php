@@ -46,12 +46,23 @@
 
             <!-- Tabel Hasil Jawaban -->
             <div class="bg-white dark:bg-gray-800 overflow-hidden shadow-sm sm:rounded-lg">
-                <div class="p-6 flex justify-between items-center">
+                <div class="p-6 flex flex-col sm:flex-row justify-between items-start sm:items-center space-y-4 sm:space-y-0">
                     <h3 class="text-lg font-medium text-gray-900 dark:text-gray-100">Hasil Pengisian Kuesioner</h3>
-                    <a href="{{ route('admin.jawaban.export', request()->query()) }}" class="inline-flex items-center px-4 py-2 bg-green-600 border rounded-md font-semibold text-xs text-white uppercase hover:bg-green-700">
-                        <i class="fas fa-file-excel mr-2"></i> Download Ringkasan
-                    </a>
+                    
+                    {{-- ====================================================== --}}
+                    {{--               TAMBAHAN TOMBOL BARU DI SINI             --}}
+                    {{-- ====================================================== --}}
+                    <div class="flex space-x-2">
+                        <a href="{{ route('admin.jawaban.export', request()->query()) }}" class="inline-flex items-center px-4 py-2 bg-green-600 border rounded-md font-semibold text-xs text-white uppercase hover:bg-green-700">
+                            <i class="fas fa-file-excel mr-2"></i> Download Ringkasan
+                        </a>
+                        {{-- Tombol baru yang mengarah ke halaman rekapitulasi dosen --}}
+                        <a href="{{ route('admin.jawaban.rekap.dosen.index') }}" class="inline-flex items-center px-4 py-2 bg-blue-600 border rounded-md font-semibold text-xs text-white uppercase hover:bg-blue-700">
+                            <i class="fas fa-chart-bar mr-2"></i> Rekapitulasi Dosen
+                        </a>
+                    </div>
                 </div>
+                
                 <div class="overflow-x-auto">
                     <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                         <thead class="bg-gray-50 dark:bg-gray-700">
@@ -77,11 +88,8 @@
                                     </td>
                                     <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">{{ $hasil->user->nama }}</td>
                                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{{ $hasil->kuesioner->judul }}</td>
-                                    {{-- PERUBAHAN: Menggunakan 'waktu_pengisian' dari query yang diperbarui --}}
                                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{{ \Carbon\Carbon::parse($hasil->waktu_pengisian)->format('d M Y, H:i') }}</td>
                                     <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-2">
-                                        {{-- PERUBAHAN: Rute aksi sekarang menggunakan 'submission_uuid' sebagai parameter --}}
-                                        <a href="{{ route('admin.jawaban.show', $hasil->submission_uuid) }}" class="text-indigo-600 hover:text-indigo-900">Detail</a>
                                         <a href="{{ route('admin.jawaban.exportDetail', $hasil->submission_uuid) }}" class="text-green-600 hover:text-green-900">Download</a>
                                         <form action="{{ route('admin.jawaban.destroy', $hasil->submission_uuid) }}" method="POST" class="inline" onsubmit="return confirm('Apakah Anda yakin ingin menghapus sesi jawaban ini? Tindakan ini tidak dapat dibatalkan.');">
                                             @csrf
@@ -99,11 +107,9 @@
                     </table>
                 </div>
                 <div class="p-4 bg-gray-50 dark:bg-gray-700 border-t">
-                    {{-- Pagination yang sudah benar (mempertahankan filter) --}}
                     {{ $hasilPengisian->withQueryString()->links() }}
                 </div>
             </div>
         </div>
     </div>
 </x-app-layout>
-

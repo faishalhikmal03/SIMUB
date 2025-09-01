@@ -11,24 +11,20 @@ class Kuesioner extends Model
 
     /**
      * Atribut yang dapat diisi secara massal.
-     *
-     * @var array<int, string>
      */
     protected $fillable = [
         'judul',
         'deskripsi',
         'target_user',
         'status',
-        'bisa_diisi_ulang', // Menambahkan field dari fungsionalitas baru
+        'bisa_diisi_ulang',
     ];
 
     /**
      * Mengatur tipe data atribut untuk casting otomatis.
-     *
-     * @var array<string, string>
      */
     protected $casts = [
-        'bisa_diisi_ulang' => 'boolean', // Praktik terbaik untuk memastikan tipe data
+        'bisa_diisi_ulang' => 'boolean',
     ];
 
     /**
@@ -44,8 +40,25 @@ class Kuesioner extends Model
      * Mendefinisikan relasi "has-many-through":
      * Satu Kuesioner memiliki banyak Pertanyaan melalui model Section.
      */
-    public function pertanyaans()
+   public function pertanyaans()
     {
         return $this->hasManyThrough(Pertanyaan::class, Section::class);
+    } 
+    
+    // --- PENAMBAHAN FUNGSI BARU ---
+    
+    /**
+     * Mendefinisikan relasi "one-to-many" ke StatusPengisian.
+     * Satu Kuesioner bisa memiliki banyak status pengisian dari banyak pengguna.
+     * Ini dibutuhkan oleh controller untuk memeriksa kuesioner mana yang sudah diisi.
+     */
+    public function statusPengisian()
+    {
+        return $this->hasMany(StatusPengisian::class);
+    }
+
+    public function jawaban()
+    {
+        return $this->hasMany(Jawaban::class);
     }
 }

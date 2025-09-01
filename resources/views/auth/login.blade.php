@@ -11,7 +11,7 @@
 
     <div class="bg-white rounded-2xl p-8 w-full max-w-sm shadow-lg">
         @php
-            $role = request('role', 'standar');
+    $role = strtolower(str_replace('-', ' ', request('role', 'standar')));
         @endphp
 
         <!-- Session Status -->
@@ -23,7 +23,7 @@
 
             <!-- Judul Form -->
             <h2 class="text-xl font-bold text-center mb-6 text-black">
-                MASUK {{ $role === 'dosen' ? 'DOSEN' : '' }}
+                SELAMAT DATANG {{ $role === 'dosen' ? '' : '' }}
             </h2>
 
             @if ($role === 'dosen')

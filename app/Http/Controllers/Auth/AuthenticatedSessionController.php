@@ -12,17 +12,13 @@ use Illuminate\View\View;
 
 class AuthenticatedSessionController extends Controller
 {
-    /**
-     * Menampilkan halaman login.
-     */
+    // MENAMPILKAN HALAMAN LOGIN
     public function create(string $role = 'standar'): View
     {
         return view('auth.login', ['role' => $role]);
     }
 
-    /**
-     * Menangani permintaan login yang masuk.
-     */
+    // MENANGANI PERMINTAAN LOGIN
     public function store(Request $request): RedirectResponse
     {
         // Logika khusus untuk login Dosen via NIDN
@@ -43,7 +39,6 @@ class AuthenticatedSessionController extends Controller
         }
 
         // Logika default Breeze untuk login via Email & Password
-        // Kita buat instance LoginRequest secara manual untuk memanggil metodenya
         $loginRequest = LoginRequest::createFrom($request);
         $loginRequest->authenticate();
 
@@ -52,9 +47,7 @@ class AuthenticatedSessionController extends Controller
         return redirect()->intended(route('dashboard', absolute: false));
     }
 
-    /**
-     * Menghancurkan sesi otentikasi.
-     */
+    // DESTROY OTENTIFIKASI
     public function destroy(Request $request): RedirectResponse
     {
         Auth::guard('web')->logout();

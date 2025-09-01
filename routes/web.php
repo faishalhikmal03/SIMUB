@@ -19,11 +19,8 @@ Route::get('/', function () {
     return view('auth.select-login-role');
 })->name('login.selection');
 
-// Halaman login sekarang menerima parameter peran
-Route::get('/login/{role?}', [AuthenticatedSessionController::class, 'create'])
-    ->name('login');
+Route::get('/login/{role?}', [AuthenticatedSessionController::class, 'create'])->name('login');
 
-// Halaman pemilihan peran untuk registrasi
 Route::get('/pilih-peran', function () {
     return view('auth.select-role');
 })->name('register.selection');
@@ -36,70 +33,63 @@ Route::get('/pilih-peran', function () {
 */
 Route::middleware(['auth', 'verified'])->group(function () {
     
-    // Dashboard utama (dengan logika redirect untuk admin)
+    // --- Dashboard Pengguna ---
+    // Mengarahkan ke dashboard yang sesuai berdasarkan peran pengguna.
     Route::get('/dashboard', function () {
-        $user = Auth::user();
-        if ($user->role === 'admin') {
+        if (Auth::user()->role === 'admin') {
             return redirect()->route('admin.dashboard');
         }
-        return view('dashboard', compact('user'));
+        // Menggunakan UserDashboardController untuk pengguna non-admin
+        return app(UserDashboardController::class)->index();
     })->name('dashboard');
 
-    // Halaman Profil
+    // --- Manajemen Profil ---
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
 
-    // Halaman Daftar Kuesioner untuk pengguna biasa
+    // --- Pengisian Kuesioner (untuk Pengguna) ---
     Route::get('/kuesioner', [KuesionerUserController::class, 'index'])->name('kuesioner.user.index');
-
-    // Menampilkan halaman untuk mengisi kuesioner
     Route::get('/kuesioner/{kuesioner}', [KuesionerUserController::class, 'show'])->name('kuesioner.user.show');
-    // Menyimpan jawaban dari kuesioner
     Route::post('/kuesioner/{kuesioner}', [KuesionerUserController::class, 'store'])->name('kuesioner.user.store');
-    //statistik Sederhana
-    Route::get('/dashboard', [UserDashboardController::class, 'index'])->name('dashboard');
 });
 
 
 /*
 |--------------------------------------------------------------------------
-| Rute Khusus Admin
+| Rute Khusus Admin (/admin/...)
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(function () {
     
-    // Dashboard Admin
-   Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
+    // --- Dashboard Admin ---
+    Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
 
-    // Pratinjau Kuesioner
-    Route::get('kuesioner/{kuesioner}/preview', [KuesionerController::class, 'preview'])->name('kuesioner.preview');
-
-     // Clone Kuesioner
+    // --- Manajemen Kuesioner ---
     Route::post('kuesioner/{kuesioner}/clone', [KuesionerController::class, 'clone'])->name('kuesioner.clone');
-
-    // Manajemen Kuesioner (CRUD)
+    Route::get('kuesioner/{kuesioner}/preview', [KuesionerController::class, 'preview'])->name('kuesioner.preview');
     Route::resource('kuesioner', KuesionerController::class);
 
-    
-    //--- Manajemen Jawaban (Direfaktor) ---
+    // --- Manajemen Jawaban ---
     Route::prefix('jawaban')->name('jawaban.')->group(function() {
-        // Halaman utama yang menampilkan setiap sesi pengisian
+        // Halaman utama dan CRUD untuk sesi jawaban
         Route::get('/', [JawabanController::class, 'index'])->name('index');
-
-        // Menampilkan detail dari SATU sesi pengisian
         Route::get('/{submissionUuid}', [JawabanController::class, 'show'])->name('show');
-        
-        // Menghapus SATU sesi pengisian
         Route::delete('/{submissionUuid}', [JawabanController::class, 'destroy'])->name('destroy');
         
-        // Mengekspor ringkasan (menggunakan parameter filter dari query string)
+        // Ekspor jawaban (ringkasan & detail)
         Route::get('/export', [JawabanController::class, 'export'])->name('export');
-        
-        // Mengekspor jawaban detail dari SATU sesi pengisian spesifik
         Route::get('/export/{submissionUuid}', [JawabanController::class, 'exportDetail'])->name('exportDetail');
-    });
 
+        // --- Rekapitulasi Penilaian Dosen (DIKELOMPOKKAN & DIPERBAIKI) ---
+        Route::prefix('rekapitulasi/dosen')->name('rekap.dosen.')->group(function() {
+            Route::get('/', [JawabanController::class, 'rekapDosenIndex'])->name('index');
+            
+            // !!! INI ADALAH PERBAIKAN UTAMA !!!
+            // Menambahkan {kuesioner} agar Route Model Binding berfungsi dengan benar.
+            Route::get('/{kuesioner}/{user}/export', [JawabanController::class, 'exportRekapitulasiPerDosen'])->name('export');
+        });
+    });
 });
 
 

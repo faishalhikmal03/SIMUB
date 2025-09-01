@@ -12,6 +12,8 @@ return new class extends Migration
             $table->id();
             $table->foreignId('pertanyaan_id')->constrained('pertanyaans')->onDelete('cascade');
             $table->string('pilihan');
+            $table->string('value')->nullable();
+            $table->foreignId('next_section_id')->nullable()->constrained('sections')->onDelete('set null');
         });
     }
 

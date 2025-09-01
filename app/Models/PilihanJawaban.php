@@ -32,6 +32,7 @@ class PilihanJawaban extends Model
     protected $fillable = [
         'pertanyaan_id',
         'pilihan',
+        'value',
         'next_section_id', // Kolom penting untuk fungsionalitas pertanyaan kondisional
     ];
 

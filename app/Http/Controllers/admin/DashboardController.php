@@ -4,7 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Kuesioner;
-use App\Models\Jawaban; // Pastikan menggunakan model Jawaban
+use App\Models\Jawaban;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;

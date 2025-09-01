@@ -3,10 +3,13 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\Jawaban;
 use App\Models\Kuesioner;
 use App\Models\Section;
 use App\Models\Pertanyaan;
 use App\Models\PilihanJawaban;
+use App\Models\StatusPengisian;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -14,144 +17,147 @@ use Illuminate\Support\Arr;
 
 class KuesionerController extends Controller
 {
-    /**
-     * Menampilkan daftar semua kuesioner.
-     */
+    // MENAMPILKAN DAFTAR SEMUA KUESIONER
     public function index()
     {
         $kuesioners = Kuesioner::withCount('pertanyaans')->latest()->paginate(10);
         return view('admin.kuesioner.index', compact('kuesioners'));
     }
 
-    /**
-     * Menampilkan form untuk membuat kuesioner baru.
-     */
+    // MENAMPILKAN FORM UNTUK MEMBUAT KUESIONER BARU
     public function create()
     {
-        return view('admin.kuesioner.create');
+        $dosen = User::where('role', 'dosen')->orderBy('nama')->get(['id', 'nama']);
+        return view('admin.kuesioner.create', compact('dosen'));
     }
 
-    /**
-     * Menyimpan kuesioner baru beserta pertanyaannya ke database.
-     */
- public function store(Request $request)
+    // MENYIMPAN KUESIONER KE DATABASE
+    public function store(Request $request, Kuesioner $kuesioner)
     {
-        // --- LANGKAH DEBUGGING ---
-        // Log semua data yang masuk dari request untuk diinspeksi.
-        Log::info('Data Kuesioner Diterima:', $request->all());
-        // --- AKHIR LANGKAH DEBUGGING ---
-
         $validated = $request->validate([
-            'judul' => 'required|string|max:255',
-            'deskripsi' => 'nullable|string',
-            'target_user' => 'required|in:mahasiswa,mahasiswa_baru,alumni,dosen',
-            'bisa_diisi_ulang' => 'required|boolean',
-            'status' => 'required|in:aktif,nonaktif',
-            'sections' => 'required|array|min:1',
-            'sections.*.clientId' => 'required', // ID sementara dari frontend
-            'sections.*.judul' => 'required|string',
-            'sections.*.deskripsi' => 'nullable|string',
-            'sections.*.questions' => 'nullable|array',
-            'sections.*.questions.*.pertanyaan' => 'required|string|max:255',
-            'sections.*.questions.*.tipe_jawaban' => 'required|in:text_singkat,paragraf,single_option,checkbox',
-            'sections.*.questions.*.pilihan' => 'nullable|array',
-            'sections.*.questions.*.pilihan.*.text' => 'required|string|max:255',
-            'sections.*.questions.*.pilihan.*.next_section_id' => 'nullable', // Validasi hanya untuk memastikan ada, nilainya bisa clientId atau kosong
+            'answers' => 'required|array',
+            'submission_uuid' => 'required|uuid',
         ]);
+
+        $user = Auth::user();
+        $answers = $validated['answers'];
+        $dosenIdYangDinilai = null;
 
         DB::beginTransaction();
         try {
-            $kuesioner = Kuesioner::create(Arr::only($validated, ['judul', 'deskripsi', 'target_user', 'status', 'bisa_diisi_ulang']));
-
-            $clientIdToDbIdMap = [];
-
-            // --- PASS 1: Buat semua sections dan petakan ID ---
-            foreach ($validated['sections'] as $sIndex => $sData) {
-                $section = $kuesioner->sections()->create([
-                    'judul' => $sData['judul'],
-                    'deskripsi' => $sData['deskripsi'],
-                    'urutan' => $sIndex + 1,
-                ]);
-                // Petakan clientId dari form ke id database yang baru dibuat
-                $clientIdToDbIdMap[$sData['clientId']] = $section->id;
+            $pertanyaanIds = array_keys($answers);
+            $pertanyaans = Pertanyaan::whereIn('id', $pertanyaanIds)->get()->keyBy('id');
+            // --- LANGKAH 1: Cari ID Dosen yang dinilai dengan benar
+            foreach ($answers as $pertanyaanId => $jawabanData) {
+                if (isset($pertanyaans[$pertanyaanId]) && $pertanyaans[$pertanyaanId]->tipe_jawaban == 'pilihan_dosen') {
+                    $dosenIdYangDinilai = $jawabanData['pilihan_id'] ?? null;
+                    break;
+                }
             }
+            // --- LANGKAH 2: Simpan semua jawaban dengan data yang benar
+            foreach ($answers as $pertanyaanId => $jawabanData) {
+                if (!isset($pertanyaans[$pertanyaanId]) || empty($jawabanData))
+                    continue;
 
-            // --- PASS 2: Buat pertanyaan dan pilihan, gunakan map untuk relasi ---
-            foreach ($validated['sections'] as $sData) {
-                // Dapatkan ID section dari map
-                $sectionId = $clientIdToDbIdMap[$sData['clientId']];
+                $pertanyaan = $pertanyaans[$pertanyaanId];
 
-                if (isset($sData['questions'])) {
-                    foreach ($sData['questions'] as $qData) {
-                        $pertanyaan = Pertanyaan::create([
-                            'section_id' => $sectionId,
-                            'pertanyaan' => $qData['pertanyaan'],
-                            'tipe_jawaban' => $qData['tipe_jawaban'],
-                        ]);
+                $baseData = [
+                    'submission_uuid' => $validated['submission_uuid'],
+                    'user_id' => $user->id,
+                    'kuesioner_id' => $kuesioner->id,
+                    'section_id' => $pertanyaan->section_id,
+                    'pertanyaan_id' => $pertanyaanId,
+                    'dosen_id' => $dosenIdYangDinilai,
+                ];
 
-                        if (in_array($qData['tipe_jawaban'], ['single_option', 'checkbox']) && isset($qData['pilihan'])) {
-                            $pilihanUntukSimpan = [];
-                            foreach ($qData['pilihan'] as $pilihan) {
-                                $nextSectionDbId = null;
-                                // Jika ada next_section_id (yang berupa clientId), cari id database-nya di map
-                                if (isset($pilihan['next_section_id']) && !empty($pilihan['next_section_id'])) {
-                                    $nextSectionDbId = $clientIdToDbIdMap[$pilihan['next_section_id']] ?? null;
-                                }
+                if (isset($jawabanData['jawaban'])) {
+                    Jawaban::create(array_merge($baseData, ['jawaban_text' => $jawabanData['jawaban']]));
 
-                                $pilihanUntukSimpan[] = [
-                                    'pilihan' => $pilihan['text'], // Ambil dari 'text'
-                                    'next_section_id' => $nextSectionDbId, // Gunakan ID database atau null
-                                ];
+                } else if (isset($jawabanData['pilihan_id'])) {
+                    $pilihanIds = is_array($jawabanData['pilihan_id']) ? $jawabanData['pilihan_id'] : [$jawabanData['pilihan_id']];
+
+                    foreach ($pilihanIds as $pilihanId) {
+                        $pilihanJawabanIdToStore = null;
+
+                        if ($pertanyaan->tipe_jawaban == 'pilihan_dosen') {
+                            // Jika 'pilihan_dosen', kita perlu mencari 'pilihan_jawaban_id' yang sesuai
+                            // berdasarkan ID Dosen ($pilihanId) yang dikirim dari form.
+                            $pilihanJawabanRow = PilihanJawaban::where('pertanyaan_id', $pertanyaan->id)
+                                ->where('value', $pilihanId)->first();
+                            if ($pilihanJawabanRow) {
+                                $pilihanJawabanIdToStore = $pilihanJawabanRow->id;
+                            } else {
+                                Log::warning("PilihanJawaban tidak ditemukan untuk pertanyaan_id: {$pertanyaan->id} dengan value (dosen_id): {$pilihanId}");
+                                continue;
                             }
-
-                            if (!empty($pilihanUntukSimpan)) {
-                                $pertanyaan->pilihanJawabans()->createMany($pilihanUntukSimpan);
-                            }
+                        } else {
+                            $pilihanJawabanIdToStore = $pilihanId;
                         }
+
+                        Jawaban::create(array_merge($baseData, [
+                            'pilihan_jawaban_id' => $pilihanJawabanIdToStore,
+                        ]));
                     }
                 }
             }
 
+            if (!$kuesioner->bisa_diisi_ulang) {
+                StatusPengisian::updateOrCreate(
+                    ['user_id' => $user->id, 'kuesioner_id' => $kuesioner->id],
+                    ['status' => 'sudah_diisi']
+                );
+            }
+
             DB::commit();
-            return redirect()->route('admin.kuesioner.index')->with('success', 'Kuesioner berhasil dibuat!');
+            return redirect()->route('kuesioner.user.index')->with('success', 'Terima kasih telah mengisi kuesioner!');
+
         } catch (\Exception $e) {
             DB::rollBack();
-            Log::error('Gagal menyimpan kuesioner: ' . $e->getMessage() . ' di baris ' . $e->getLine());
-            return back()->withInput()->with('error', 'Terjadi kesalahan internal saat menyimpan kuesioner.');
+            Log::error('Gagal menyimpan jawaban: ' . $e->getMessage() . ' di baris ' . $e->getLine());
+            return back()->with('error', 'Terjadi kesalahan teknis saat menyimpan jawaban Anda.');
         }
     }
 
-    /**
-     * Menampilkan pratinjau kuesioner.
-     */
+    // PREVIEW KUESIONER
     public function preview(Kuesioner $kuesioner)
     {
         $kuesioner->load('sections.pertanyaans.pilihanJawabans');
         return view('admin.kuesioner.preview', compact('kuesioner'));
     }
 
-    /**
-     * Menampilkan form untuk mengedit kuesioner.
-     */
+    // MENAMPILKAN FORM EDIT KUESIONER
     public function edit(Kuesioner $kuesioner)
     {
+        $dosen = User::where('role', 'dosen')->orderBy('nama')->get(['id', 'nama']);
+
         $kuesioner->load('sections.pertanyaans.pilihanJawabans');
 
         $kuesionerData = [
+            'id' => $kuesioner->id,
+            'judul' => $kuesioner->judul,
+            'deskripsi' => $kuesioner->deskripsi,
+            'target_user' => $kuesioner->target_user,
+            'status' => $kuesioner->status,
+            'bisa_diisi_ulang' => (bool) $kuesioner->bisa_diisi_ulang,
             'sections' => $kuesioner->sections->map(function ($section) {
                 return [
                     'id' => $section->id,
+                    'clientId' => $section->id,
                     'judul' => $section->judul,
                     'deskripsi' => $section->deskripsi,
                     'questions' => $section->pertanyaans->map(function ($question) {
                         return [
                             'id' => $question->id,
+                            'clientId' => $question->id,
                             'pertanyaan' => $question->pertanyaan,
                             'tipe_jawaban' => $question->tipe_jawaban,
                             'pilihan' => $question->pilihanJawabans->map(function ($option) {
                                 return [
                                     'id' => $option->id,
+                                    'clientId' => $option->id,
                                     'text' => $option->pilihan,
+                                    'value' => $option->value,
+                                    'next_section_clientId' => $option->next_section_id,
                                 ];
                             })->toArray(),
                         ];
@@ -160,70 +166,88 @@ class KuesionerController extends Controller
             })->toArray(),
         ];
 
-        return view('admin.kuesioner.edit', compact('kuesioner', 'kuesionerData'));
+        return view('admin.kuesioner.edit', compact('kuesioner', 'kuesionerData', 'dosen'));
     }
 
-    /**
-     * Memperbarui data kuesioner di database.
-     */
+    // MEMPERBARUI KUESIONER
     public function update(Request $request, Kuesioner $kuesioner)
     {
-        $validated = $request->validate([
+        $data = json_decode($request->input('kuesioner_data'), true);
+        if (!$data) {
+            return back()->with('error', 'Data form tidak valid.');
+        }
+
+        $validated = validator($data, [
             'judul' => 'required|string|max:255',
             'deskripsi' => 'nullable|string',
             'target_user' => 'required|in:mahasiswa,mahasiswa_baru,alumni,dosen',
             'status' => 'required|in:aktif,nonaktif',
+            'bisa_diisi_ulang' => 'required|boolean',
             'sections' => 'required|array|min:1',
-            'sections.*.id' => 'nullable|exists:sections,id',
+            'sections.*.id' => 'nullable|exists:sections,id,kuesioner_id,' . $kuesioner->id,
+            'sections.*.clientId' => 'required',
             'sections.*.judul' => 'required|string',
             'sections.*.deskripsi' => 'nullable|string',
-            'sections.*.questions' => 'required|array|min:1',
+            'sections.*.questions' => 'nullable|array',
             'sections.*.questions.*.id' => 'nullable|exists:pertanyaans,id',
             'sections.*.questions.*.pertanyaan' => 'required|string',
-            'sections.*.questions.*.tipe_jawaban' => 'required|in:text_singkat,paragraf,single_option,checkbox',
+            'sections.*.questions.*.tipe_jawaban' => 'required|in:text_singkat,paragraf,single_option,checkbox,pilihan_dosen',
             'sections.*.questions.*.pilihan' => 'nullable|array',
             'sections.*.questions.*.pilihan.*.id' => 'nullable|exists:pilihan_jawabans,id',
-            'sections.*.questions.*.pilihan.*.text' => 'nullable|string|max:255',
-            'sections.*.questions.*.pilihan.*.next_section_id' => 'nullable|exists:sections,id',
-        ]);
+            'sections.*.questions.*.pilihan.*.text' => 'required_with:sections.*.questions.*.pilihan|string|max:255',
+            'sections.*.questions.*.pilihan.*.value' => 'nullable',
+            'sections.*.questions.*.pilihan.*.next_section_clientId' => 'nullable',
+        ])->validate();
 
         DB::beginTransaction();
         try {
-            $kuesioner->update(Arr::only($validated, ['judul', 'deskripsi', 'target_user', 'status']));
+            $kuesioner->update(Arr::only($validated, ['judul', 'deskripsi', 'target_user', 'status', 'bisa_diisi_ulang']));
 
             $incomingSectionIds = [];
+            $clientIdToDbIdMap = [];
+
             foreach ($validated['sections'] as $sIndex => $sData) {
                 $section = Section::updateOrCreate(
-                    ['id' => $sData['id'] ?? null, 'kuesioner_id' => $kuesioner->id],
-                    ['judul' => $sData['judul'], 'deskripsi' => $sData['deskripsi'], 'urutan' => $sIndex + 1]
+                    ['id' => $sData['id'] ?? null],
+                    ['kuesioner_id' => $kuesioner->id, 'judul' => $sData['judul'], 'deskripsi' => $sData['deskripsi'], 'urutan' => $sIndex + 1]
                 );
                 $incomingSectionIds[] = $section->id;
+                $clientIdToDbIdMap[$sData['clientId']] = $section->id;
+            }
+
+            foreach ($validated['sections'] as $sData) {
+                $sectionDbId = $clientIdToDbIdMap[$sData['clientId']];
 
                 $incomingQuestionIds = [];
-                foreach ($sData['questions'] as $qData) {
-                    $pertanyaan = Pertanyaan::updateOrCreate(
-                        ['id' => $qData['id'] ?? null, 'section_id' => $section->id],
-                        ['pertanyaan' => $qData['pertanyaan'], 'tipe_jawaban' => $qData['tipe_jawaban']]
-                    );
-                    $incomingQuestionIds[] = $pertanyaan->id;
+                if (!empty($sData['questions'])) {
+                    foreach ($sData['questions'] as $qData) {
+                        $pertanyaan = Pertanyaan::updateOrCreate(
+                            ['id' => $qData['id'] ?? null],
+                            ['section_id' => $sectionDbId, 'pertanyaan' => $qData['pertanyaan'], 'tipe_jawaban' => $qData['tipe_jawaban']]
+                        );
+                        $incomingQuestionIds[] = $pertanyaan->id;
 
-                    if (in_array($qData['tipe_jawaban'], ['single_option', 'checkbox']) && isset($qData['pilihan'])) {
-                        $incomingOptionIds = [];
-                        foreach ($qData['pilihan'] as $oData) {
-                            if (isset($oData['text'])) {
+                        if (in_array($qData['tipe_jawaban'], ['single_option', 'checkbox', 'pilihan_dosen']) && !empty($qData['pilihan'])) {
+                            $incomingOptionIds = [];
+                            foreach ($qData['pilihan'] as $oData) {
+                                $nextSectionDbId = null;
+                                if (isset($oData['next_section_clientId']) && !empty($oData['next_section_clientId'])) {
+                                    $nextSectionDbId = $clientIdToDbIdMap[$oData['next_section_clientId']] ?? null;
+                                }
+
                                 $option = PilihanJawaban::updateOrCreate(
-                                    ['id' => $oData['id'] ?? null, 'pertanyaan_id' => $pertanyaan->id],
-                                    ['pilihan' => $oData['text']]
+                                    ['id' => $oData['id'] ?? null],
+                                    ['pertanyaan_id' => $pertanyaan->id, 'pilihan' => $oData['text'], 'value' => $oData['value'] ?? null, 'next_section_id' => $nextSectionDbId]
                                 );
                                 $incomingOptionIds[] = $option->id;
                             }
+                            $pertanyaan->pilihanJawabans()->whereNotIn('id', $incomingOptionIds)->delete();
+                        } else {
+                            $pertanyaan->pilihanJawabans()->delete();
                         }
-                        $pertanyaan->pilihanJawabans()->whereNotIn('id', $incomingOptionIds)->delete();
-                    } else {
-                        $pertanyaan->pilihanJawabans()->delete();
                     }
                 }
-                $section->pertanyaans()->whereNotIn('id', $incomingQuestionIds)->delete();
+                Section::find($sectionDbId)->pertanyaans()->whereNotIn('id', $incomingQuestionIds)->delete();
             }
             $kuesioner->sections()->whereNotIn('id', $incomingSectionIds)->delete();
 
@@ -231,14 +255,12 @@ class KuesionerController extends Controller
             return redirect()->route('admin.kuesioner.index')->with('success', 'Kuesioner berhasil diperbarui.');
         } catch (\Exception $e) {
             DB::rollBack();
-            Log::error('Gagal update kuesioner: ' . $e->getMessage());
-            return back()->withInput()->with('error', 'Terjadi kesalahan saat memperbarui kuesioner.');
+            Log::error('Gagal update kuesioner: ' . $e->getMessage() . ' di baris ' . $e->getLine());
+            return back()->withInput()->with('error', 'Terjadi kesalahan saat memperbarui kuesioner. ' . $e->getMessage());
         }
     }
 
-    /**
-     * Menghapus kuesioner dari database.
-     */
+    // HAPUS KUESIONER DARI DATABASE
     public function destroy(Kuesioner $kuesioner)
     {
         try {
@@ -250,37 +272,30 @@ class KuesionerController extends Controller
         }
     }
 
-    /**
-     * Menduplikasi kuesioner beserta semua relasinya.
-     */
+    // SALIN KUESIONER
     public function clone(Kuesioner $kuesioner)
     {
         DB::beginTransaction();
         try {
-            // 1. Muat semua relasi dari kuesioner asli
             $kuesioner->load('sections.pertanyaans.pilihanJawabans');
 
-            // 2. Duplikasi data kuesioner utama
             $cloneKuesioner = $kuesioner->replicate();
             $cloneKuesioner->judul = $kuesioner->judul . ' (Salinan)';
-            $cloneKuesioner->status = 'nonaktif'; // Set status default menjadi draft
+            $cloneKuesioner->status = 'nonaktif';
             $cloneKuesioner->created_at = now();
             $cloneKuesioner->updated_at = now();
             $cloneKuesioner->save();
 
-            // 3. Loop dan duplikasi setiap section
             foreach ($kuesioner->sections as $section) {
                 $cloneSection = $section->replicate();
                 $cloneSection->kuesioner_id = $cloneKuesioner->id;
                 $cloneSection->save();
 
-                // 4. Loop dan duplikasi setiap pertanyaan di dalam section
                 foreach ($section->pertanyaans as $pertanyaan) {
                     $clonePertanyaan = $pertanyaan->replicate();
                     $clonePertanyaan->section_id = $cloneSection->id;
                     $clonePertanyaan->save();
 
-                    // 5. Loop dan duplikasi setiap pilihan jawaban
                     foreach ($pertanyaan->pilihanJawabans as $pilihan) {
                         $clonePilihan = $pilihan->replicate();
                         $clonePilihan->pertanyaan_id = $clonePertanyaan->id;
@@ -291,7 +306,6 @@ class KuesionerController extends Controller
 
             DB::commit();
             return redirect()->route('admin.kuesioner.index')->with('success', 'Kuesioner berhasil diduplikasi.');
-
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error('Gagal menduplikasi kuesioner: ' . $e->getMessage());
