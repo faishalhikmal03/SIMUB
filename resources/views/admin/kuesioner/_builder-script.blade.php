@@ -46,7 +46,7 @@ document.addEventListener('alpine:init', () => {
         addSection() {
             this.kuesioner.sections.push({
                 id: null,
-                clientId: Date.now(),
+                clientId: Date.now().toString(),
                 judul: `Section ${this.kuesioner.sections.length + 1}`,
                 deskripsi: '',
                 questions: []
@@ -69,7 +69,7 @@ document.addEventListener('alpine:init', () => {
         addQuestion(sectionIndex) {
             this.kuesioner.sections[sectionIndex].questions.push({
                 id: null,
-                clientId: Date.now(),
+                clientId: Date.now().toString(),
                 pertanyaan: '',
                 tipe_jawaban: 'text_singkat',
                 is_conditional: false,
@@ -84,7 +84,7 @@ document.addEventListener('alpine:init', () => {
         addOption(sectionIndex, questionIndex) {
             this.kuesioner.sections[sectionIndex].questions[questionIndex].pilihan.push({
                 id: null,
-                clientId: Date.now(),
+                clientId: Date.now().toString(),
                 text: '',
                 value: null,
                 next_section_clientId: null
@@ -99,7 +99,7 @@ document.addEventListener('alpine:init', () => {
             if (newType === 'pilihan_dosen') {
                 question.pilihan = this.dosenList.map(dosen => ({
                     id: null,
-                    clientId: Date.now() + dosen.id,
+                    clientId: (Date.now() + dosen.id).toString(),
                     text: dosen.nama,
                     value: dosen.id
                 }));

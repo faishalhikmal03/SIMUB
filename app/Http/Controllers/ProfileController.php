@@ -8,6 +8,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Redirect;
 use Illuminate\View\View;
+use Illuminate\Support\Facades\Storage;
 
 class ProfileController extends Controller
 {
@@ -62,5 +63,33 @@ class ProfileController extends Controller
         $request->session()->regenerateToken();
 
         return Redirect::to('/');
+    }
+    
+    /**
+     * Memperbarui foto profil pengguna.
+     */
+    public function updatePhoto(Request $request): RedirectResponse
+    {
+        $user = $request->user();
+
+        // Validasi file foto
+        $request->validate([
+            'foto_profile' => 'required|image|mimes:jpeg,png,jpg|max:2048',
+        ]);
+
+        // Hapus foto lama jika ada
+        if ($user->foto_profile) {
+            Storage::disk('public')->delete($user->foto_profile);
+        }
+
+        // Simpan foto baru dan simpan path-nya
+        $path = $request->file('foto_profile')->store('profile-photos', 'public');
+        $user->foto_profile = $path;
+        
+        // Simpan perubahan ke database
+        $user->save();
+
+        // Redirect kembali dengan status spesifik untuk foto
+        return Redirect::route('profile.edit')->with('status', 'photo-updated');
     }
 }

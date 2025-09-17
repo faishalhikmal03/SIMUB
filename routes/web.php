@@ -17,9 +17,13 @@ use App\Http\Controllers\UserDashboardController;
 */
 Route::get('/', function () {
     return view('auth.select-login-role');
-})->name('login.selection');
+})->middleware('guest')->name('login.selection'); // <-- Kita akan pakai nama ini
 
 Route::get('/login/{role?}', [AuthenticatedSessionController::class, 'create'])->name('login');
+// Rute untuk menampilkan halaman pemilihan peran LOGIN (SESUAI ERROR)
+Route::get('/role-selection', function () {
+    return view('auth.select-login-role'); // <-- GANTI MENJADI SEPERTI INI
+})->middleware('guest')->name('role.selection');
 
 Route::get('/pilih-peran', function () {
     return view('auth.select-role');
@@ -47,6 +51,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
+    Route::patch('/profile/photo', [ProfileController::class, 'updatePhoto'])->name('profile.photo.update');
 
     // --- Pengisian Kuesioner (untuk Pengguna) ---
     Route::get('/kuesioner', [KuesionerUserController::class, 'index'])->name('kuesioner.user.index');
@@ -74,16 +79,17 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     Route::prefix('jawaban')->name('jawaban.')->group(function() {
         // Halaman utama dan CRUD untuk sesi jawaban
         Route::get('/', [JawabanController::class, 'index'])->name('index');
-        Route::get('/{submissionUuid}', [JawabanController::class, 'show'])->name('show');
-        Route::delete('/{submissionUuid}', [JawabanController::class, 'destroy'])->name('destroy');
-        
+
         // Ekspor jawaban (ringkasan & detail)
         Route::get('/export', [JawabanController::class, 'export'])->name('export');
         Route::get('/export/{submissionUuid}', [JawabanController::class, 'exportDetail'])->name('exportDetail');
 
+        Route::get('/{submissionUuid}', [JawabanController::class, 'show'])->name('show');
+        Route::delete('/{submissionUuid}', [JawabanController::class, 'destroy'])->name('destroy');
+
         // --- Rekapitulasi Penilaian Dosen (DIKELOMPOKKAN & DIPERBAIKI) ---
         Route::prefix('rekapitulasi/dosen')->name('rekap.dosen.')->group(function() {
-            Route::get('/', [JawabanController::class, 'rekapDosenIndex'])->name('index');
+        Route::get('/', [JawabanController::class, 'rekapDosenIndex'])->name('index');
             
             // !!! INI ADALAH PERBAIKAN UTAMA !!!
             // Menambahkan {kuesioner} agar Route Model Binding berfungsi dengan benar.

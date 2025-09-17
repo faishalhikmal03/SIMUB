@@ -9,46 +9,69 @@
         <div class="max-w-7xl mx-auto sm:px-6 lg:px-8">
             <div class="space-y-6">
                 @forelse ($kuesioners as $kuesioner)
-                    <div class="bg-white dark:bg-gray-800 overflow-hidden shadow-sm sm:rounded-lg">
-                        <div class="p-6 flex justify-between items-center">
-                            <div>
-                                <div class="flex items-center space-x-3">
-                                    <h3 class="text-lg font-medium text-gray-900 dark:text-gray-100">
+                    @php
+                        // Logika untuk menentukan status dan teks tombol
+                        $sudahDiisi = isset($kuesionerSudahDiisiIds) && $kuesionerSudahDiisiIds->contains($kuesioner->id);
+                        $bisaDiisiUlang = $kuesioner->bisa_diisi_ulang;
+                        
+                        $tombolTeks = 'Mulai Isi';
+                        $showBadge = false;
+
+                        if ($sudahDiisi) {
+                            if ($bisaDiisiUlang) {
+                                $tombolTeks = 'Isi Ulang';
+                                $showBadge = true; // Tetap tunjukkan badge meskipun bisa diisi ulang
+                            } else {
+                                // Jika sudah diisi dan TIDAK bisa diisi ulang, kuesioner ini seharusnya tidak tampil.
+                                // Namun jika tampil, kita pastikan tombolnya disabled.
+                                $tombolTeks = 'Selesai';
+                            }
+                        }
+                    @endphp
+
+                    {{-- Kartu Kuesioner dengan Desain Baru --}}
+                    <div class="group bg-white rounded-tr-2xl rounded-br-2xl shadow-lg overflow-hidden transition-all duration-300 ease-in-out hover:shadow-2xl hover:-translate-y-1 border-l-4 {{ $sudahDiisi ? 'border-green-500' : 'border-purple-500' }}">
+                        <div class="p-6 flex flex-col sm:flex-row justify-between items-start sm:items-center">
+                            
+                            {{-- Informasi Utama --}}
+                            <div class="flex-grow">
+                                <div class="flex items-center space-x-4">
+                                    <h3 class="text-xl font-bold text-gray-900 group-hover:text-purple-600  transition-colors">
                                         {{ $kuesioner->judul }}
                                     </h3>
-                                    {{-- PERUBAHAN 1: Tambahkan badge jika sudah diisi --}}
-                                    @if(isset($kuesionerSudahDiisiIds) && $kuesionerSudahDiisiIds->contains($kuesioner->id))
-                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                                            Sudah Diisi
+                                    @if($showBadge)
+                                        <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-green-100  text-green-800">
+                                            <i class="fas fa-check-circle mr-1.5"></i> Sudah Diisi
                                         </span>
                                     @endif
                                 </div>
-                                <p class="mt-1 text-sm text-gray-600 dark:text-gray-400">
+                                <p class="mt-2 text-sm text-gray-600 max-w-2xl">
                                     {{ $kuesioner->deskripsi }}
                                 </p>
                             </div>
-                            <div class="ml-4 flex-shrink-0">
-                                <a href="{{ route('kuesioner.user.show', $kuesioner) }}" class="inline-flex items-center px-4 py-2 bg-purple-600 border border-transparent rounded-md font-semibold text-xs text-white uppercase tracking-widest hover:bg-purple-700 active:bg-purple-900 focus:outline-none focus:border-purple-900 focus:ring ring-purple-300 disabled:opacity-25 transition ease-in-out duration-150">
-                                    {{-- PERUBAHAN 2: Ubah teks tombol secara dinamis --}}
-                                    @if(isset($kuesionerSudahDiisiIds) && $kuesionerSudahDiisiIds->contains($kuesioner->id))
-                                        Isi Ulang
-                                    @else
-                                        Mulai Isi
-                                    @endif
+
+                            {{-- Tombol Aksi --}}
+                            <div class="mt-4 sm:mt-0 sm:ml-6 flex-shrink-0">
+                                <a href="{{ route('kuesioner.user.show', $kuesioner) }}" 
+                                   class="inline-flex items-center px-8 py-3 bg-gradient-to-r from-purple-600 to-indigo-600 border border-transparent rounded-lg font-semibold text-sm text-white tracking-widest hover:from-purple-700 hover:to-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition ease-in-out duration-150 transform group-hover:scale-105">
+                                <span>{{ $tombolTeks }}</span>
                                 </a>
                             </div>
+
                         </div>
                     </div>
                 @empty
-                    <div class="bg-white dark:bg-gray-800 overflow-hidden shadow-sm sm:rounded-lg">
-                        <div class="p-6 text-center text-gray-500 dark:text-gray-400">
-                            <p>Tidak ada kuesioner yang tersedia untuk Anda saat ini.</p>
-                        </div>
+                    {{-- Kartu "Tidak Ada Kuesioner" dengan Gaya Baru --}}
+                    <div class="bg-white rounded-2xl shadow-lg p-10 text-center text-gray-500 border-2 border-dashed border-gray-700">
+                        <i class="fas fa-folder-open text-4xl mb-4 text-gray-400"></i>
+                        <h3 class="text-lg font-semibold">Tidak Ada Kuesioner</h3>
+                        <p>Saat ini tidak ada kuesioner yang tersedia untuk Anda.</p>
                     </div>
                 @endforelse
 
+                {{-- Paginasi dengan Styling --}}
                 @if($kuesioners->hasPages())
-                    <div class="mt-4">
+                    <div class="mt-8">
                         {{ $kuesioners->links() }}
                     </div>
                 @endif

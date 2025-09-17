@@ -25,6 +25,7 @@ protected $fillable = [
     'nidn',
     'role',
     'tanggal_yudisium',
+    'foto_profile',
 ];
 
 

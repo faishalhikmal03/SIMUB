@@ -3,7 +3,7 @@
 
 <!-- Sidebar -->
 <aside :class="sidebarOpen ? 'translate-x-0' : '-translate-x-full'" 
-       class="fixed z-30 inset-y-0 left-0 w-68 bg-purple-700 text-white flex flex-col justify-between 
+       class="fixed z-30 inset-y-0 left-0 w-68 bg-gradient-to-b from-purple-700 dark:to-indigo-800 text-white flex flex-col justify-between 
               transform transition-transform duration-300 ease-in-out 
               md:relative md:translate-x-0">
     <div>

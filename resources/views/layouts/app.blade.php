@@ -48,7 +48,7 @@
 
                 <div class="flex items-center space-x-4">
                     <span class="text-gray-700 hidden sm:block">Hallo, {{ Auth::user()->nama ?? Auth::user()->email }}!</span>
-                    <img class="w-10 h-10 rounded-full object-cover" 
+                    <img class="w-10 h-10 border-2 rounded-full object-cover" 
                          src="{{ Auth::user()->foto_profile ? asset('storage/'.Auth::user()->foto_profile) : 'https://placehold.co/40x40/E2E8F0/A0AEC0?text=U' }}" 
                          alt="Foto Profil">
                 </div>

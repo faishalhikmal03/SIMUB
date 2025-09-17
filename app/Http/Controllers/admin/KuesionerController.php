@@ -32,89 +32,90 @@ class KuesionerController extends Controller
     }
 
     // MENYIMPAN KUESIONER KE DATABASE
-    public function store(Request $request, Kuesioner $kuesioner)
+    public function store(Request $request)
     {
-        $validated = $request->validate([
-            'answers' => 'required|array',
-            'submission_uuid' => 'required|uuid',
+        // 1. Validasi input utama yang berisi string JSON dari form
+        $request->validate([
+            'kuesioner_data' => 'required|json',
         ]);
 
-        $user = Auth::user();
-        $answers = $validated['answers'];
-        $dosenIdYangDinilai = null;
+        // 2. Decode string JSON menjadi array PHP
+        $data = json_decode($request->input('kuesioner_data'), true);
+        if (!$data) {
+            return back()->with('error', 'Data form tidak valid atau kosong.');
+        }
+
+        // 3. Lakukan validasi terhadap isi dari data JSON
+        $validated = validator($data, [
+            'judul' => 'required|string|max:255',
+            'deskripsi' => 'nullable|string',
+            'target_user' => 'required|in:mahasiswa,mahasiswa_baru,alumni,dosen',
+            'status' => 'required|in:aktif,nonaktif',
+            'bisa_diisi_ulang' => 'required|boolean',
+            'sections' => 'required|array|min:1',
+            'sections.*.clientId' => 'required|string',
+            'sections.*.judul' => 'required|string',
+            'sections.*.deskripsi' => 'nullable|string',
+            'sections.*.questions' => 'nullable|array',
+            'sections.*.questions.*.pertanyaan' => 'required|string',
+            'sections.*.questions.*.tipe_jawaban' => 'required|in:text_singkat,paragraf,single_option,checkbox,pilihan_dosen',
+            'sections.*.questions.*.pilihan' => 'nullable|array',
+            'sections.*.questions.*.pilihan.*.text' => 'required_if:sections.*.questions.*.tipe_jawaban,single_option,checkbox|string|max:255',
+            'sections.*.questions.*.pilihan.*.value' => 'nullable',
+        ])->validate();
 
         DB::beginTransaction();
         try {
-            $pertanyaanIds = array_keys($answers);
-            $pertanyaans = Pertanyaan::whereIn('id', $pertanyaanIds)->get()->keyBy('id');
-            // --- LANGKAH 1: Cari ID Dosen yang dinilai dengan benar
-            foreach ($answers as $pertanyaanId => $jawabanData) {
-                if (isset($pertanyaans[$pertanyaanId]) && $pertanyaans[$pertanyaanId]->tipe_jawaban == 'pilihan_dosen') {
-                    $dosenIdYangDinilai = $jawabanData['pilihan_id'] ?? null;
-                    break;
-                }
+            // 4. Buat entitas Kuesioner utama
+            $kuesioner = Kuesioner::create(Arr::only($validated, ['judul', 'deskripsi', 'target_user', 'status', 'bisa_diisi_ulang']));
+
+            $clientIdToDbIdMap = [];
+
+            // 5. Looping untuk membuat setiap Section
+            foreach ($validated['sections'] as $sIndex => $sData) {
+                $section = $kuesioner->sections()->create([
+                    'judul' => $sData['judul'],
+                    'deskripsi' => $sData['deskripsi'],
+                    'urutan' => $sIndex + 1,
+                ]);
+                $clientIdToDbIdMap[$sData['clientId']] = $section->id;
             }
-            // --- LANGKAH 2: Simpan semua jawaban dengan data yang benar
-            foreach ($answers as $pertanyaanId => $jawabanData) {
-                if (!isset($pertanyaans[$pertanyaanId]) || empty($jawabanData))
-                    continue;
 
-                $pertanyaan = $pertanyaans[$pertanyaanId];
+            // 6. Looping kedua untuk membuat pertanyaan dan pilihan (setelah semua section ID diketahui)
+            foreach ($validated['sections'] as $sData) {
+                $sectionDbId = $clientIdToDbIdMap[$sData['clientId']];
+                
+                if (empty($sData['questions'])) continue;
 
-                $baseData = [
-                    'submission_uuid' => $validated['submission_uuid'],
-                    'user_id' => $user->id,
-                    'kuesioner_id' => $kuesioner->id,
-                    'section_id' => $pertanyaan->section_id,
-                    'pertanyaan_id' => $pertanyaanId,
-                    'dosen_id' => $dosenIdYangDinilai,
-                ];
+                foreach ($sData['questions'] as $qData) {
+                    $pertanyaan = Pertanyaan::create([
+                        'section_id' => $sectionDbId,
+                        'pertanyaan' => $qData['pertanyaan'],
+                        'tipe_jawaban' => $qData['tipe_jawaban'],
+                    ]);
 
-                if (isset($jawabanData['jawaban'])) {
-                    Jawaban::create(array_merge($baseData, ['jawaban_text' => $jawabanData['jawaban']]));
-
-                } else if (isset($jawabanData['pilihan_id'])) {
-                    $pilihanIds = is_array($jawabanData['pilihan_id']) ? $jawabanData['pilihan_id'] : [$jawabanData['pilihan_id']];
-
-                    foreach ($pilihanIds as $pilihanId) {
-                        $pilihanJawabanIdToStore = null;
-
-                        if ($pertanyaan->tipe_jawaban == 'pilihan_dosen') {
-                            // Jika 'pilihan_dosen', kita perlu mencari 'pilihan_jawaban_id' yang sesuai
-                            // berdasarkan ID Dosen ($pilihanId) yang dikirim dari form.
-                            $pilihanJawabanRow = PilihanJawaban::where('pertanyaan_id', $pertanyaan->id)
-                                ->where('value', $pilihanId)->first();
-                            if ($pilihanJawabanRow) {
-                                $pilihanJawabanIdToStore = $pilihanJawabanRow->id;
-                            } else {
-                                Log::warning("PilihanJawaban tidak ditemukan untuk pertanyaan_id: {$pertanyaan->id} dengan value (dosen_id): {$pilihanId}");
-                                continue;
-                            }
-                        } else {
-                            $pilihanJawabanIdToStore = $pilihanId;
+                    // Jika ada pilihan jawaban, buat juga
+                    if (in_array($qData['tipe_jawaban'], ['single_option', 'checkbox','pilihan_dosen']) && !empty($qData['pilihan'])) {
+                        foreach ($qData['pilihan'] as $oData) {
+                            $nextSectionDbId = isset($oData['next_section_clientId']) ? ($clientIdToDbIdMap[$oData['next_section_clientId']] ?? null) : null;
+                            
+                            $pertanyaan->pilihanJawabans()->create([
+                                'pilihan' => $oData['text'],
+                                'value' => $oData['value'] ?? null,
+                                'next_section_id' => $nextSectionDbId
+                            ]);
                         }
-
-                        Jawaban::create(array_merge($baseData, [
-                            'pilihan_jawaban_id' => $pilihanJawabanIdToStore,
-                        ]));
                     }
                 }
             }
 
-            if (!$kuesioner->bisa_diisi_ulang) {
-                StatusPengisian::updateOrCreate(
-                    ['user_id' => $user->id, 'kuesioner_id' => $kuesioner->id],
-                    ['status' => 'sudah_diisi']
-                );
-            }
-
             DB::commit();
-            return redirect()->route('kuesioner.user.index')->with('success', 'Terima kasih telah mengisi kuesioner!');
+            return redirect()->route('admin.kuesioner.index')->with('success', 'Kuesioner baru berhasil dibuat!');
 
         } catch (\Exception $e) {
             DB::rollBack();
-            Log::error('Gagal menyimpan jawaban: ' . $e->getMessage() . ' di baris ' . $e->getLine());
-            return back()->with('error', 'Terjadi kesalahan teknis saat menyimpan jawaban Anda.');
+            Log::error('Gagal membuat kuesioner baru: ' . $e->getMessage() . ' di baris ' . $e->getLine());
+            return back()->withInput()->with('error', 'Terjadi kesalahan teknis saat menyimpan kuesioner. ' . $e->getMessage());
         }
     }
 

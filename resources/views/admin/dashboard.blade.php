@@ -1,83 +1,75 @@
 <x-app-layout>
     <x-slot name="header">
-        <h2 class="font-semibold text-xl text-black leading-tight">
+        <h2 class="font-semibold text-xl text-gray-800 leading-tight">
             {{ __('Beranda Admin') }}
         </h2>
     </x-slot>
 
     <div class="py-12">
         <div class="max-w-7xl mx-auto sm:px-6 lg:px-8">
-            <div class="bg-white dark:bg-gray-800 overflow-hidden shadow-sm sm:rounded-lg mb-6">
-                <div class="p-6 text-gray-900 dark:text-gray-100">
-                    {{ __("Selamat datang di dashboard Anda!") }}
-                </div>
+            {{-- Kartu Sambutan dengan Gradien --}}
+            <div class="mb-8 p-6 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-2xl shadow-lg">
+                <h3 class="text-2xl font-bold">Selamat Datang di Dashboard Admin!</h3>
+                <p class="text-indigo-200">Kelola pengguna, kuesioner, dan lihat statistik di sini.</p>
             </div>
 
-            <!-- Grid untuk Kartu Statistik -->
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
                 
-                <!-- Card: Pengguna Terdaftar -->
-                <div class="bg-white dark:bg-gray-800 overflow-hidden shadow-sm sm:rounded-lg p-6 flex flex-col">
-                    {{-- Header Card --}}
-                    <div class="flex items-center">
-                        <div class="p-3 rounded-full bg-purple-100 dark:bg-purple-900">
-                            <i class="fas fa-users text-purple-600 dark:text-purple-300 text-xl"></i>
+                <div class="group bg-white rounded-2xl shadow-lg p-6 transition-all duration-300 ease-in-out hover:shadow-2xl hover:-translate-y-2 border-l-4 border-purple-400">
+                    <div class="flex items-start justify-between mb-4">
+                        <div>
+                            <h3 class="text-lg font-semibold text-gray-500">Pengguna Terdaftar</h3>
+                            <p class="text-6xl font-bold text-gray-800 mt-2">{{ $userCounts->sum() }}</p>
                         </div>
-                        <div class="ml-4">
-                            <h3 class="text-lg font-medium text-gray-900 dark:text-gray-100">Pengguna Terdaftar</h3>
-                            <p class="text-sm text-gray-500 dark:text-gray-400">Total: {{ $userCounts->sum() }}</p>
+                        <div class="p-4 rounded-xl bg-purple-100 group-hover:bg-purple-200 transition-colors">
+                            <i class="fas fa-users text-purple-500 text-2xl"></i>
                         </div>
                     </div>
-                    {{-- Konten Card --}}
-                    <div class="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 space-y-2">
+                    {{-- Detail Pengguna per Role --}}
+                    <div class="mt-4 pt-4 border-t border-gray-200 space-y-2">
                         @foreach(['mahasiswa', 'mahasiswa_baru', 'alumni', 'dosen', 'admin'] as $role)
-                        <div class="flex justify-between text-sm text-gray-700 dark:text-gray-300">
+                        <div class="flex justify-between text-sm text-gray-600">
                             <span>{{ Str::title(str_replace('_', ' ', $role)) }}</span>
-                            <span class="font-semibold">{{ $userCounts[$role] ?? 0 }}</span>
+                            <span class="font-semibold text-gray-800">{{ $userCounts[$role] ?? 0 }}</span>
                         </div>
                         @endforeach
                     </div>
                 </div>
 
-                <!-- Card: Total Kuesioner -->
-                <div class="bg-white dark:bg-gray-800 overflow-hidden shadow-sm sm:rounded-lg p-6 flex flex-col">
-                    {{-- Header Card --}}
-                    <div class="flex items-center">
-                        <div class="p-3 rounded-full bg-blue-100 dark:bg-blue-900">
-                            <i class="fas fa-file-alt text-blue-600 dark:text-blue-300 text-xl"></i>
+                <div class="group bg-white rounded-2xl shadow-lg p-6 transition-all duration-300 ease-in-out hover:shadow-2xl hover:-translate-y-2 border-l-4 border-blue-400">
+                    <div class="flex items-start justify-between">
+                        <div>
+                            <h3 class="text-lg font-semibold text-gray-500">Total Kuesioner</h3>
+                            <p class="text-6xl font-bold text-gray-800 mt-2">{{ $kuesionerCount }}</p>
+                            <p class="text-sm text-gray-400 mt-1">Kuesioner dibuat</p>
                         </div>
-                        <div class="ml-4">
-                            <h3 class="text-lg font-medium text-gray-900 dark:text-gray-100">Total Kuesioner</h3>
+                        <div class="p-4 rounded-xl bg-blue-100 group-hover:bg-blue-200 transition-colors">
+                            <i class="fas fa-file-alt text-blue-500 text-2xl"></i>
                         </div>
-                    </div>
-                    {{-- Konten Card (Angka di tengah) --}}
-                    <div class="flex-grow flex items-center justify-center">
-                        <p class="text-5xl font-bold text-gray-800 dark:text-gray-100">{{ $kuesionerCount }}</p>
                     </div>
                 </div>
 
-                <!-- Card: Responden Kuesioner -->
-                <div class="bg-white dark:bg-gray-800 overflow-hidden shadow-sm sm:rounded-lg p-6 flex flex-col">
-                    {{-- Header Card --}}
-                    <div class="flex items-center">
-                        <div class="p-3 rounded-full bg-green-100 dark:bg-green-900">
-                            <i class="fas fa-check-circle text-green-600 dark:text-green-300 text-xl"></i>
+                <div class="group bg-white rounded-2xl shadow-lg p-6 transition-all duration-300 ease-in-out hover:shadow-2xl hover:-translate-y-2 border-l-4 border-green-400">
+                    <div class="flex items-start justify-between mb-4">
+                        <div>
+                            <h3 class="text-lg font-semibold text-gray-500">Total Responden</h3>
+                            <p class="text-6xl font-bold text-gray-800 mt-2">{{ $submissionCounts->sum() }}</p>
                         </div>
-                        <div class="ml-4">
-                            <h3 class="text-lg font-medium text-gray-900 dark:text-gray-100">Responden</h3>
-                            <p class="text-sm text-gray-500 dark:text-gray-400">Total Responden: {{ $submissionCounts->sum() }}</p>
+                        <div class="p-4 rounded-xl bg-green-100 group-hover:bg-green-200 transition-colors">
+                            <i class="fas fa-check-circle text-green-500 text-2xl"></i>
                         </div>
                     </div>
-                    {{-- Konten Card --}}
-                    <div class="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 space-y-2">
+                     {{-- Detail Responden per Role --}}
+                    <div class="mt-4 pt-4 border-t border-gray-200 space-y-2">
                         @foreach(['mahasiswa', 'mahasiswa_baru', 'alumni', 'dosen'] as $role)
-                        <div class="flex justify-between text-sm text-gray-700 dark:text-gray-300">
+                        <div class="flex justify-between text-sm text-gray-600">
                             <span>{{ Str::title(str_replace('_', ' ', $role)) }}</span>
-                            <span class="font-semibold">{{ $submissionCounts[$role] ?? 0 }}</span>
+                            <span class="font-semibold text-gray-800">{{ $submissionCounts[$role] ?? 0 }}</span>
                         </div>
                         @endforeach
                     </div>
                 </div>
+
             </div>
         </div>
     </div>

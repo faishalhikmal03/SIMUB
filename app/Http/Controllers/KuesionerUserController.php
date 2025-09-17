@@ -58,81 +58,79 @@ class KuesionerUserController extends Controller
      * Menyimpan jawaban kuesioner ke database. (DIREFAKTOR TOTAL)
      */
  public function store(Request $request, Kuesioner $kuesioner)
-    {
-        $validated = $request->validate([
-            'answers' => 'required|array',
-            'submission_uuid' => 'required|uuid',
-        ]);
+{
+    $validated = $request->validate([
+        'answers' => 'required|array',
+        'submission_uuid' => 'required|uuid',
+    ]);
 
-        $user = Auth::user();
-        $answers = $validated['answers'];
+    $user = Auth::user();
+    $answers = $validated['answers'];
+
+    DB::beginTransaction();
+    try {
+        $pertanyaanIds = array_keys($answers);
+        $pertanyaans = Pertanyaan::whereIn('id', $pertanyaanIds)->get()->keyBy('id');
         $dosenIdYangDinilai = null;
-        $pilihanJawabanDosenId = null; // Simpan ID pilihan jawaban untuk dosen
 
-        DB::beginTransaction();
-        try {
-            $pertanyaanIds = array_keys($answers);
-            $pertanyaans = Pertanyaan::whereIn('id', $pertanyaanIds)->get()->keyBy('id');
-
-            // --- LANGKAH 1 (DIPERBAIKI): Cari ID Dosen dan ID Pilihan Jawabannya ---
-            foreach ($answers as $pertanyaanId => $jawabanData) {
-                if (isset($pertanyaans[$pertanyaanId]) && $pertanyaans[$pertanyaanId]->tipe_jawaban == 'pilihan_dosen') {
-                    if (isset($jawabanData['pilihan_id'])) {
-                        $pilihanJawabanDosenId = $jawabanData['pilihan_id'];
-                        // Cari baris pilihan jawaban untuk mendapatkan 'value' (ID dosen)
-                        $pilihanRow = PilihanJawaban::find($pilihanJawabanDosenId);
-                        if ($pilihanRow) {
-                            $dosenIdYangDinilai = $pilihanRow->value;
-                        }
-                    }
-                    break;
+        // Langkah 1: Cari ID dosen yang dinilai (jika ada) sekali saja.
+        foreach ($answers as $pertanyaanId => $jawabanData) {
+            if (isset($pertanyaans[$pertanyaanId]) && $pertanyaans[$pertanyaanId]->tipe_jawaban == 'pilihan_dosen' && isset($jawabanData['pilihan_id'])) {
+                $pilihanRow = PilihanJawaban::find($jawabanData['pilihan_id']);
+                if ($pilihanRow) {
+                    $dosenIdYangDinilai = $pilihanRow->value;
                 }
+                break; // Dosen hanya dipilih sekali, jadi bisa langsung keluar dari loop.
             }
-
-            // --- LANGKAH 2 (DIPERBAIKI): Simpan semua jawaban ---
-            foreach ($answers as $pertanyaanId => $jawabanData) {
-                if (!isset($pertanyaans[$pertanyaanId]) || empty($jawabanData)) continue;
-                
-                $pertanyaan = $pertanyaans[$pertanyaanId];
-                
-                $baseData = [
-                    'submission_uuid' => $validated['submission_uuid'],
-                    'user_id' => $user->id,
-                    'kuesioner_id' => $kuesioner->id,
-                    'section_id' => $pertanyaan->section_id,
-                    'pertanyaan_id' => $pertanyaanId,
-                    'dosen_id' => $dosenIdYangDinilai,
-                ];
-
-                if (isset($jawabanData['jawaban'])) {
-                    Jawaban::create(array_merge($baseData, ['jawaban_text' => $jawabanData['jawaban']]));
-                
-                } else if (isset($jawabanData['pilihan_id'])) {
-                    $pilihanIds = is_array($jawabanData['pilihan_id']) ? $jawabanData['pilihan_id'] : [$jawabanData['pilihan_id']];
-                    
-                    foreach ($pilihanIds as $pilihanId) {
-                        // Untuk semua jenis pertanyaan (dosen, kondisional, biasa),
-                        // $pilihanId sekarang adalah ID dari tabel pilihan_jawabans.
-                        Jawaban::create(array_merge($baseData, [
-                            'pilihan_jawaban_id' => $pilihanId,
-                        ]));
-                    }
-                }
-            }
-
-            if (!$kuesioner->bisa_diisi_ulang) {
-                StatusPengisian::updateOrCreate(
-                    ['user_id' => $user->id, 'kuesioner_id' => $kuesioner->id],
-                    ['status' => 'sudah_diisi']
-                );
-            }
-
-            DB::commit();
-            return redirect()->route('kuesioner.user.index')->with('success', 'Terima kasih telah mengisi kuesioner!');
-
-        } catch (\Exception $e) {
-            DB::rollBack();
-            Log::error('Gagal menyimpan jawaban: ' . $e->getMessage() . ' di baris ' . $e->getLine());
-            return back()->with('error', 'Terjadi kesalahan teknis saat menyimpan jawaban Anda.');
         }
-    }}
+
+        // Langkah 2: Buat array untuk menyimpan semua jawaban sebelum dimasukkan ke database.
+        $jawabanToInsert = [];
+        $now = now();
+
+        foreach ($answers as $pertanyaanId => $jawabanData) {
+            if (!isset($pertanyaans[$pertanyaanId]) || empty($jawabanData)) continue;
+
+            $pertanyaan = $pertanyaans[$pertanyaanId];
+            $baseData = [
+                'submission_uuid' => $validated['submission_uuid'],
+                'user_id' => $user->id,
+                'kuesioner_id' => $kuesioner->id,
+                'section_id' => $pertanyaan->section_id,
+                'pertanyaan_id' => $pertanyaanId,
+                'dosen_id' => $dosenIdYangDinilai,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ];
+
+            if (isset($jawabanData['jawaban'])) {
+                $jawabanToInsert[] = array_merge($baseData, ['jawaban_text' => $jawabanData['jawaban'], 'pilihan_jawaban_id' => null]);
+            } elseif (isset($jawabanData['pilihan_id'])) {
+                $pilihanIds = is_array($jawabanData['pilihan_id']) ? $jawabanData['pilihan_id'] : [$jawabanData['pilihan_id']];
+                foreach ($pilihanIds as $pilihanId) {
+                    $jawabanToInsert[] = array_merge($baseData, ['pilihan_jawaban_id' => $pilihanId, 'jawaban_text' => null]);
+                }
+            }
+        }
+        
+        // Langkah 3: Simpan semua jawaban ke database dalam satu query (lebih efisien).
+        if (!empty($jawabanToInsert)) {
+            Jawaban::insert($jawabanToInsert);
+        }
+
+        // Langkah 4: SELALU catat status pengisian setelah selesai.
+        StatusPengisian::updateOrCreate(
+            ['user_id' => $user->id, 'kuesioner_id' => $kuesioner->id],
+            ['status' => 'sudah_diisi', 'submission_uuid' => $validated['submission_uuid']]
+        );
+
+        DB::commit();
+        return redirect()->route('kuesioner.user.index')->with('success', 'Terima kasih telah mengisi kuesioner!');
+
+    } catch (\Exception $e) {
+        DB::rollBack();
+        Log::error('Gagal menyimpan jawaban: ' . $e->getMessage() . ' di baris ' . $e->getLine());
+        return back()->with('error', 'Terjadi kesalahan teknis saat menyimpan jawaban Anda.');
+    }
+}
+}
