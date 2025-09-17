@@ -62,6 +62,7 @@ class KuesionerController extends Controller
             'sections.*.questions.*.pilihan' => 'nullable|array',
             'sections.*.questions.*.pilihan.*.text' => 'required_if:sections.*.questions.*.tipe_jawaban,single_option,checkbox|string|max:255',
             'sections.*.questions.*.pilihan.*.value' => 'nullable',
+            'sections.*.questions.*.pilihan.*.next_section_clientId' => 'nullable',
         ])->validate();
 
         DB::beginTransaction();
@@ -178,6 +179,7 @@ class KuesionerController extends Controller
             return back()->with('error', 'Data form tidak valid.');
         }
 
+        // 1. Validasi data yang masuk dari form
         $validated = validator($data, [
             'judul' => 'required|string|max:255',
             'deskripsi' => 'nullable|string',
@@ -202,11 +204,15 @@ class KuesionerController extends Controller
 
         DB::beginTransaction();
         try {
+            // 2. Perbarui data kuesioner utama
             $kuesioner->update(Arr::only($validated, ['judul', 'deskripsi', 'target_user', 'status', 'bisa_diisi_ulang']));
 
             $incomingSectionIds = [];
             $clientIdToDbIdMap = [];
 
+            // 3. Sinkronisasi Sections: Perbarui section yang ada, buat yang baru.
+            // Loop ini juga membuat 'peta' dari ID frontend (clientId) ke ID database (dbId)
+            // yang akan digunakan nanti untuk logika lompat section.
             foreach ($validated['sections'] as $sIndex => $sData) {
                 $section = Section::updateOrCreate(
                     ['id' => $sData['id'] ?? null],
@@ -216,10 +222,11 @@ class KuesionerController extends Controller
                 $clientIdToDbIdMap[$sData['clientId']] = $section->id;
             }
 
+            // 4. Sinkronisasi Pertanyaan dan Pilihan Jawaban
             foreach ($validated['sections'] as $sData) {
                 $sectionDbId = $clientIdToDbIdMap[$sData['clientId']];
-
                 $incomingQuestionIds = [];
+
                 if (!empty($sData['questions'])) {
                     foreach ($sData['questions'] as $qData) {
                         $pertanyaan = Pertanyaan::updateOrCreate(
@@ -228,6 +235,7 @@ class KuesionerController extends Controller
                         );
                         $incomingQuestionIds[] = $pertanyaan->id;
 
+                        // Jika pertanyaan memiliki pilihan, sinkronkan juga pilihannya
                         if (in_array($qData['tipe_jawaban'], ['single_option', 'checkbox', 'pilihan_dosen']) && !empty($qData['pilihan'])) {
                             $incomingOptionIds = [];
                             foreach ($qData['pilihan'] as $oData) {
@@ -235,32 +243,37 @@ class KuesionerController extends Controller
                                 if (isset($oData['next_section_clientId']) && !empty($oData['next_section_clientId'])) {
                                     $nextSectionDbId = $clientIdToDbIdMap[$oData['next_section_clientId']] ?? null;
                                 }
-
                                 $option = PilihanJawaban::updateOrCreate(
                                     ['id' => $oData['id'] ?? null],
                                     ['pertanyaan_id' => $pertanyaan->id, 'pilihan' => $oData['text'], 'value' => $oData['value'] ?? null, 'next_section_id' => $nextSectionDbId]
                                 );
                                 $incomingOptionIds[] = $option->id;
                             }
+                            // Hapus pilihan jawaban yang sudah tidak ada lagi
                             $pertanyaan->pilihanJawabans()->whereNotIn('id', $incomingOptionIds)->delete();
                         } else {
+                            // Jika tipe pertanyaan diubah menjadi tidak punya pilihan, hapus semua pilihan yang ada
                             $pertanyaan->pilihanJawabans()->delete();
                         }
                     }
                 }
+                // Hapus pertanyaan yang sudah tidak ada lagi di section ini
                 Section::find($sectionDbId)->pertanyaans()->whereNotIn('id', $incomingQuestionIds)->delete();
             }
+            
+            // 5. Hapus Section yang sudah tidak ada lagi di kuesioner ini
             $kuesioner->sections()->whereNotIn('id', $incomingSectionIds)->delete();
 
             DB::commit();
             return redirect()->route('admin.kuesioner.index')->with('success', 'Kuesioner berhasil diperbarui.');
+
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error('Gagal update kuesioner: ' . $e->getMessage() . ' di baris ' . $e->getLine());
             return back()->withInput()->with('error', 'Terjadi kesalahan saat memperbarui kuesioner. ' . $e->getMessage());
         }
     }
-
+    
     // HAPUS KUESIONER DARI DATABASE
     public function destroy(Kuesioner $kuesioner)
     {
